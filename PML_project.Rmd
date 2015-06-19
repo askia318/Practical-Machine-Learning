@@ -1,0 +1,106 @@
+---
+title: "PML_Project_WriteUp"
+output: html_document
+---
+In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+Data Processing
+===========
+```{r}
+library(caret)
+```
+```{r}
+library(rpart)
+library(rpart.plot)
+```
+```{r}
+library(randomForest)
+```
+```{r}
+library(corrplot)
+```
+Moreover.
+```{r}
+trainFile <- "./pml-training.csv"
+testFile  <- "./pml-testing.csv"
+```
+
+Read the Data
+=========
+After downloading the data from the data source, we can read the two csv files into two data frames.
+```{r}
+trainRaw <- read.csv("./pml-training.csv")
+testRaw <- read.csv("./pml-testing.csv")
+dim(trainRaw)
+```
+```{r}
+dim(testRaw)
+```
+The training data set contains 19622 observations and 160 variables, while the testing data set contains 20 observations and 160 variables. The “classe” variable in the training set is the outcome to predict.
+
+Clean the Data
+============
+In this step, we will clean the data and get rid of observations with missing values as well as some meaningless variables.
+```{r}
+sum(complete.cases(trainRaw))
+```
+First, we remove columns that contain NA missing values.
+```{r}
+trainRaw <- trainRaw[, colSums(is.na(trainRaw)) == 0] 
+testRaw <- testRaw[, colSums(is.na(testRaw)) == 0] 
+```
+Next, we get rid of some columns that do not contribute much to the accelerometer measurements.
+```{r}
+classe <- trainRaw$classe
+trainRemove <- grepl("^X|timestamp|window", names(trainRaw))
+trainRaw <- trainRaw[, !trainRemove]
+trainCleaned <- trainRaw[, sapply(trainRaw, is.numeric)]
+trainCleaned$classe <- classe
+testRemove <- grepl("^X|timestamp|window", names(testRaw))
+testRaw <- testRaw[, !testRemove]
+testCleaned <- testRaw[, sapply(testRaw, is.numeric)]
+```
+Now, the cleaned training data set contains 19622 observations and 53 variables, while the testing data set contains 20 observations and 53 variables. The “classe” variable is still in the cleaned training set.
+
+Slice the Data
+==============
+Then, we can split the cleaned training set into a pure training data set (70%) and a validation data set (30%). We will use the validation data set to conduct cross validation in future steps.
+```{r}
+set.seed(22519) # For reproducibile purpose
+inTrain <- createDataPartition(trainCleaned$classe, p=0.70, list=F)
+trainData <- trainCleaned[inTrain, ]
+testData <- trainCleaned[-inTrain, ]
+```
+
+Data Modeling
+============
+We fit a predictive model for activity recognition using Random Forest algorithm because it automatically selects important variables and is robust to correlated covariates & outliers in general. We will use 5-fold cross validation when applying the algorithm.
+
+```{r}
+controlRf <- trainControl(method="cv", 5)
+modelRf <- train(classe ~ ., data=trainData, method="rf", trControl=controlRf, ntree=250)
+modelRf
+```
+
+Then, we estimate the performance of the model on the validation data set.
+```{r}
+predictRf <- predict(modelRf, testData)
+confusionMatrix(testData$classe, predictRf)
+```
+```{r}
+accuracy <- postResample(predictRf, testData$classe)
+accuracy
+```
+```{r}
+oose <- 1 - as.numeric(confusionMatrix(testData$classe, predictRf)$overall[1])
+oose
+```
+So, the estimated accuracy of the model is 99.42% and the estimated out-of-sample error is 0.58%.
+
+Predicting for Test Data Set
+======================
+Now, we apply the model to the original testing data set downloaded from the data source. We remove the problem_id column first.
+```{r}
+result <- predict(modelRf, testCleaned[, -length(names(testCleaned))])
+result
+```
